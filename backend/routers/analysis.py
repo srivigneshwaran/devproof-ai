@@ -17,6 +17,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
 from db.database import get_connection
+from llm.exceptions import LLMServiceError
 from models.analysis import AnalysisResult
 from services.analysis_service import analyze
 
@@ -113,12 +114,12 @@ def run_analysis(body: AnalysisRequest, request: Request) -> AnalysisResult:
             project_id=project_id,
             llm=llm,
         )
+    except LLMServiceError as exc:
+        logger.error("Analysis LLM failure for session %s: %s", session_id, exc)
+        raise HTTPException(status_code=503, detail=str(exc))
     except ValueError as exc:
         logger.error("Analysis ValueError for session %s: %s", session_id, exc)
         raise HTTPException(status_code=422, detail=str(exc))
-    except RuntimeError as exc:
-        logger.error("Analysis LLM failure for session %s: %s", session_id, exc)
-        raise HTTPException(status_code=503, detail=str(exc))
 
     # Persist result
     analysis_id = str(uuid.uuid4())

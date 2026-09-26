@@ -1,5 +1,5 @@
 """
-DevProof AI — Test Generation Service (ST-7).
+DevProof AI — Test Generation Service (ST-7, ST-8).
 
 Generates pytest test code from the approved fix using the LLMProvider abstraction.
 
@@ -11,6 +11,8 @@ Each returned dict has:
 
 All LLM calls go through the LLMProvider.complete() abstraction — no direct
 SDK usage.
+
+ST-8: LLM calls wrapped to raise LLMServiceError on any provider failure.
 """
 
 from __future__ import annotations
@@ -19,6 +21,7 @@ import logging
 import re
 
 from llm.base import LLMProvider
+from llm.exceptions import LLMServiceError
 
 logger = logging.getLogger(__name__)
 
@@ -137,7 +140,7 @@ def generate_tests(
                 "LLM test generation failed for session %s, file %s: %s",
                 session_id, file_path, exc,
             )
-            raise RuntimeError(f"LLM test generation failed: {exc}") from exc
+            raise LLMServiceError("LLM test generation failed", exc) from exc
 
         code = _strip_code_fences(raw_response)
         tests.append({"file": test_filename, "code": code})

@@ -1,5 +1,5 @@
 """
-DevProof AI — Fix Suggestion Service (ST-6).
+DevProof AI — Fix Suggestion Service (ST-6, ST-8).
 
 Implements fix suggestion generation.
 
@@ -10,6 +10,8 @@ code change is produced using the LLMProvider abstraction.
 
 All LLM calls go through the LLMProvider.complete() abstraction — no direct
 SDK usage.
+
+ST-8: LLM calls wrapped to raise LLMServiceError on any provider failure.
 """
 
 from __future__ import annotations
@@ -21,6 +23,7 @@ from pathlib import Path
 from typing import Optional
 
 from llm.base import LLMProvider
+from llm.exceptions import LLMServiceError
 
 logger = logging.getLogger(__name__)
 
@@ -193,7 +196,7 @@ def generate_fixes(
                 "LLM fix call failed for session %s, file %s: %s",
                 session_id, file_path, exc,
             )
-            raise RuntimeError(f"LLM fix generation failed: {exc}") from exc
+            raise LLMServiceError("LLM fix generation failed", exc) from exc
 
         try:
             payload = json.loads(raw_response)
@@ -202,7 +205,7 @@ def generate_fixes(
                 "LLM returned invalid JSON for fix (session %s, file %s): %s",
                 session_id, file_path, raw_response[:200],
             )
-            raise ValueError(f"LLM returned invalid JSON: {exc}") from exc
+            raise LLMServiceError(f"LLM returned invalid JSON: {exc}", exc) from exc
 
         for fix in payload.get("fixes", []):
             if not isinstance(fix, dict):

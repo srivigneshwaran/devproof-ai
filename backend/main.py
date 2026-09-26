@@ -16,16 +16,21 @@ ST-6: Fix router registered.
 ST-7: Verify and Report routers registered.
       POST /api/verify
       GET  /api/report/{session_id}
+ST-8: Global exception handler (unhandled → 500), HTTPException handler
+      (normalized error envelope), and startup env-var validation.
 """
 
 import logging
+import os
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from db.database import init_db
-from llm.factory import get_provider
+from llm.factory import get_provider, validate_env
 from routers.analysis import router as analysis_router
 from routers.fix import router as fix_router
 from routers.projects import router as projects_router
@@ -39,6 +44,10 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan: startup and shutdown events."""
+    # ST-8: Validate required environment variables before anything else.
+    # Raises RuntimeError with a clear message if mandatory vars are missing.
+    validate_env()
+
     # Startup
     init_db()
 
@@ -72,6 +81,70 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# ---------------------------------------------------------------------------
+# ST-8: Error handlers
+# ---------------------------------------------------------------------------
+
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException) -> JSONResponse:
+    """
+    Normalize all HTTPException responses to the standard envelope:
+
+        { "error": "<short label>", "detail": "<message>" }
+
+    This applies to every route (404, 409, 422, 503, …).
+    """
+    status_labels: dict[int, str] = {
+        400: "Bad Request",
+        401: "Unauthorized",
+        403: "Forbidden",
+        404: "Not Found",
+        409: "Conflict",
+        422: "Unprocessable Entity",
+        500: "Internal Server Error",
+        503: "Service Unavailable",
+    }
+    label = status_labels.get(exc.status_code, f"HTTP {exc.status_code}")
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"error": label, "detail": exc.detail},
+    )
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(
+    request: Request, exc: RequestValidationError
+) -> JSONResponse:
+    """
+    Normalize Pydantic RequestValidationError (422) to the standard envelope.
+
+    FastAPI raises this for malformed/missing request body fields.
+    """
+    return JSONResponse(
+        status_code=422,
+        content={"error": "Unprocessable Entity", "detail": exc.errors()},
+    )
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    """
+    Catch-all handler for any unhandled exception.
+
+    Returns HTTP 500 with the standard error envelope so that no internal
+    tracebacks are exposed to callers.
+    """
+    logger.exception("Unhandled exception on %s %s", request.method, request.url.path)
+    return JSONResponse(
+        status_code=500,
+        content={
+            "error": "Internal Server Error",
+            "detail": "An unexpected error occurred. Please try again later.",
+        },
+    )
 
 
 # ---------------------------------------------------------------------------

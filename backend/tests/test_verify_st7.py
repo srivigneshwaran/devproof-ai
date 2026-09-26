@@ -679,12 +679,13 @@ class TestTestServiceUnit:
         all_content = " ".join(m.get("content", "") for m in messages)
         assert "unique_bug_desc_XYZ" in all_content
 
-    def test_generate_tests_raises_runtime_error_on_llm_failure(self):
+    def test_generate_tests_raises_llm_service_error_on_llm_failure(self):
+        from llm.exceptions import LLMServiceError
         from services.test_service import generate_tests
 
         llm = MagicMock()
         llm.complete.side_effect = Exception("LLM unavailable")
-        with pytest.raises(RuntimeError, match="LLM test generation failed"):
+        with pytest.raises(LLMServiceError, match="LLM test generation failed"):
             generate_tests(
                 session_id="test-sid",
                 fixes=[_MOCK_FIX],

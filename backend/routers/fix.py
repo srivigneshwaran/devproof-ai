@@ -18,6 +18,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
 from db.database import get_connection
+from llm.exceptions import LLMServiceError
 from models.fix import FixApproval, FixList, FixSuggestion
 from services.fix_service import generate_fixes
 
@@ -148,12 +149,12 @@ def generate_fix(body: FixRequest, request: Request) -> FixList:
             analysis_result=analysis_result,
             llm=llm,
         )
+    except LLMServiceError as exc:
+        logger.error("Fix generation LLM failure for session %s: %s", session_id, exc)
+        raise HTTPException(status_code=503, detail=str(exc))
     except ValueError as exc:
         logger.error("Fix generation ValueError for session %s: %s", session_id, exc)
         raise HTTPException(status_code=422, detail=str(exc))
-    except RuntimeError as exc:
-        logger.error("Fix generation LLM failure for session %s: %s", session_id, exc)
-        raise HTTPException(status_code=503, detail=str(exc))
 
     # Persist fixes and update session status.
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")

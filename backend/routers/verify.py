@@ -24,6 +24,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
 from db.database import get_connection
+from llm.exceptions import LLMServiceError
 from models.report import VerificationReport
 from services.report_service import compile_report
 from services.test_service import generate_tests
@@ -182,11 +183,11 @@ def run_verification(body: VerifyRequest, request: Request) -> VerificationRepor
             bug_description=bug_description,
             llm=llm,
         )
-    except RuntimeError as exc:
-        logger.error("Test generation failed for session %s: %s", session_id, exc)
+    except LLMServiceError as exc:
+        logger.error("Test generation LLM failure for session %s: %s", session_id, exc)
         raise HTTPException(
             status_code=503,
-            detail=f"LLM test generation failed: {exc}",
+            detail=str(exc),
         )
 
     # ------------------------------------------------------------------

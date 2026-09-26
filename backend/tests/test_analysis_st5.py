@@ -377,20 +377,22 @@ class TestAnalysisServiceUnit:
         assert isinstance(messages, list)
         assert len(messages) >= 2  # system + user
 
-    def test_analyze_raises_runtime_error_on_llm_failure(self):
+    def test_analyze_raises_llm_service_error_on_llm_failure(self):
+        from llm.exceptions import LLMServiceError
         from services.analysis_service import analyze
 
         llm = MagicMock()
         llm.complete.side_effect = Exception("LLM unavailable")
-        with pytest.raises(RuntimeError, match="LLM analysis failed"):
+        with pytest.raises(LLMServiceError, match="LLM analysis failed"):
             analyze("test-session", "discount bug", "order_service", llm)
 
-    def test_analyze_raises_value_error_on_bad_json(self):
+    def test_analyze_raises_llm_service_error_on_bad_json(self):
+        from llm.exceptions import LLMServiceError
         from services.analysis_service import analyze
 
         llm = MagicMock()
         llm.complete.return_value = "this is not json {"
-        with pytest.raises(ValueError, match="invalid JSON"):
+        with pytest.raises(LLMServiceError, match="invalid JSON"):
             analyze("test-session", "discount bug", "order_service", llm)
 
     def test_analyze_unknown_project_raises_value_error(self):

@@ -811,12 +811,13 @@ class TestFixServiceUnit:
         assert llm.complete.call_count == 0
         assert fixes == []
 
-    def test_generate_fixes_raises_runtime_error_on_llm_failure(self):
+    def test_generate_fixes_raises_llm_service_error_on_llm_failure(self):
+        from llm.exceptions import LLMServiceError
         from services.fix_service import generate_fixes
 
         llm = MagicMock()
         llm.complete.side_effect = Exception("LLM unavailable")
-        with pytest.raises(RuntimeError, match="LLM fix generation failed"):
+        with pytest.raises(LLMServiceError, match="LLM fix generation failed"):
             generate_fixes(
                 session_id="test-session",
                 bug_description="Discount before tax",
@@ -825,12 +826,13 @@ class TestFixServiceUnit:
                 llm=llm,
             )
 
-    def test_generate_fixes_raises_value_error_on_bad_json(self):
+    def test_generate_fixes_raises_llm_service_error_on_bad_json(self):
+        from llm.exceptions import LLMServiceError
         from services.fix_service import generate_fixes
 
         llm = MagicMock()
         llm.complete.return_value = "not valid json {"
-        with pytest.raises(ValueError, match="invalid JSON"):
+        with pytest.raises(LLMServiceError, match="invalid JSON"):
             generate_fixes(
                 session_id="test-session",
                 bug_description="Discount before tax",

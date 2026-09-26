@@ -1,5 +1,5 @@
 """
-DevProof AI — Analysis Service (ST-5).
+DevProof AI — Analysis Service (ST-5, ST-8).
 
 Implements the AI step that reads the bug description + file contents and
 returns ranked relevant files with root causes.
@@ -10,6 +10,8 @@ Returns a dict matching the AnalysisResult JSON contract.
 
 All LLM calls go through the LLMProvider.complete() abstraction — no direct
 SDK usage.
+
+ST-8: LLM call wrapped to raise LLMServiceError on any provider failure.
 """
 
 from __future__ import annotations
@@ -20,6 +22,7 @@ from pathlib import Path
 from typing import Optional
 
 from llm.base import LLMProvider
+from llm.exceptions import LLMServiceError
 
 logger = logging.getLogger(__name__)
 
@@ -244,7 +247,7 @@ def analyze(
         raw_response = llm.complete(messages, json_mode=True)
     except Exception as exc:
         logger.error("LLM call failed for session %s: %s", session_id, exc)
-        raise RuntimeError(f"LLM analysis failed: {exc}") from exc
+        raise LLMServiceError(f"LLM analysis failed", exc) from exc
 
     # 4. Parse and validate
     try:
@@ -253,7 +256,7 @@ def analyze(
         logger.error(
             "LLM returned invalid JSON for session %s: %s", session_id, raw_response[:200]
         )
-        raise ValueError(f"LLM returned invalid JSON: {exc}") from exc
+        raise LLMServiceError(f"LLM returned invalid JSON: {exc}", exc) from exc
 
     relevant_files = payload.get("relevant_files", [])
     root_causes = payload.get("root_causes", [])
