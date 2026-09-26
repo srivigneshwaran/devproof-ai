@@ -13,6 +13,9 @@ ST-5: Sessions and Analysis routers registered.
 ST-6: Fix router registered.
       POST /api/fix, GET /api/fix/{session_id},
       POST /api/fix/{session_id}/approve
+ST-7: Verify and Report routers registered.
+      POST /api/verify
+      GET  /api/report/{session_id}
 """
 
 import logging
@@ -26,7 +29,9 @@ from llm.factory import get_provider
 from routers.analysis import router as analysis_router
 from routers.fix import router as fix_router
 from routers.projects import router as projects_router
+from routers.report import router as report_router
 from routers.sessions import router as sessions_router
+from routers.verify import router as verify_router
 
 logger = logging.getLogger(__name__)
 
@@ -76,6 +81,8 @@ app.include_router(projects_router)   # ST-3
 app.include_router(sessions_router)   # ST-5
 app.include_router(analysis_router)   # ST-5
 app.include_router(fix_router)        # ST-6
+app.include_router(verify_router)     # ST-7
+app.include_router(report_router)     # ST-7
 
 
 # ---------------------------------------------------------------------------
