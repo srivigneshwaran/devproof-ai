@@ -1,0 +1,3 @@
+-- DevProof AI — SQLite schema
+-- ST-1: Empty placeholder — full schema added in ST-4.
+-- Do not add tables here until ST-4.

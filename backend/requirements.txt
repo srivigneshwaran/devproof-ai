@@ -1,0 +1,22 @@
+# DevProof AI — backend Python dependencies
+# ST-1: core runtime + dev dependencies.
+# ST-2 will add ibm-watsonx-ai and openai once provider stubs are built.
+
+# Web framework
+fastapi==0.115.5
+uvicorn[standard]==0.32.1
+
+# Environment variable loading
+python-dotenv==1.0.1
+
+# Async file I/O (used in ST-3 workspace handling)
+aiofiles==24.1.0
+
+# LLM provider SDKs (credentials optional until ST-2; import is lazy)
+ibm-watsonx-ai==1.1.15
+openai==1.57.0
+
+# Development / testing
+httpx==0.28.0           # required by FastAPI TestClient
+pytest==8.3.4
+pytest-asyncio==0.24.0
