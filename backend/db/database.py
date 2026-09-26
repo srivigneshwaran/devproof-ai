@@ -2,7 +2,9 @@
 DevProof AI — Database initialization and connection helpers.
 
 ST-1: Creates the SQLite database file and directory on startup.
-      Full schema (sessions, analyses, fixes, reports) is added in ST-4.
+ST-4: schema.sql now contains the full schema; init_db() applies it with
+      IF NOT EXISTS guards so it is safe to call repeatedly on every startup
+      without destroying existing data.
 """
 
 import sqlite3

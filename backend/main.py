@@ -5,6 +5,8 @@ ST-1: Scaffold, CORS, lifespan, and health endpoint.
 ST-2: LLM provider instantiated once at startup and stored on app.state.llm.
 ST-3: Projects router registered (GET /api/projects, GET /api/projects/{id}/files,
       POST /api/projects/upload).
+ST-4: Full SQLite schema applied via init_db() on startup; Pydantic models
+      available in backend/models/.
 """
 
 import logging
