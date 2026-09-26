@@ -3,6 +3,8 @@ DevProof AI — FastAPI application entry point.
 
 ST-1: Scaffold, CORS, lifespan, and health endpoint.
 ST-2: LLM provider instantiated once at startup and stored on app.state.llm.
+ST-3: Projects router registered (GET /api/projects, GET /api/projects/{id}/files,
+      POST /api/projects/upload).
 """
 
 import logging
@@ -13,6 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from db.database import init_db
 from llm.factory import get_provider
+from routers.projects import router as projects_router
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +56,12 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# ---------------------------------------------------------------------------
+# Routers (ST-3)
+# ---------------------------------------------------------------------------
+app.include_router(projects_router)
 
 
 # ---------------------------------------------------------------------------

@@ -1,10 +1,12 @@
 # DevProof AI — backend Python dependencies
 # ST-1: core runtime + dev dependencies.
 # ST-2: ibm-watsonx-ai and openai added for LLM provider abstraction.
+# ST-3: python-multipart added for file upload support.
 
 # Web framework
 fastapi==0.115.5
 uvicorn[standard]==0.32.1
+python-multipart==0.0.20
 
 # Environment variable loading
 python-dotenv==1.0.1

@@ -1,0 +1,11 @@
+{
+  "id": "order_service",
+  "name": "Order Service",
+  "description": "E-commerce order total calculation with discount and tax handling.",
+  "files": [
+    {
+      "path": "order_service.py",
+      "description": "Order total, discount, and tax logic"
+    }
+  ]
+}

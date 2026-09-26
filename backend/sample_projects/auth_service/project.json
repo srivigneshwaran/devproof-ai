@@ -1,0 +1,11 @@
+{
+  "id": "auth_service",
+  "name": "Auth Service",
+  "description": "Token-based authentication with expiry validation.",
+  "files": [
+    {
+      "path": "auth.py",
+      "description": "Token creation, validation, and expiry logic"
+    }
+  ]
+}
