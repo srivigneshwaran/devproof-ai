@@ -10,6 +10,9 @@ ST-4: Full SQLite schema applied via init_db() on startup; Pydantic models
 ST-5: Sessions and Analysis routers registered.
       POST /api/sessions, GET /api/sessions, GET /api/sessions/{id}
       POST /api/analysis, GET /api/analysis/{session_id}
+ST-6: Fix router registered.
+      POST /api/fix, GET /api/fix/{session_id},
+      POST /api/fix/{session_id}/approve
 """
 
 import logging
@@ -21,6 +24,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from db.database import init_db
 from llm.factory import get_provider
 from routers.analysis import router as analysis_router
+from routers.fix import router as fix_router
 from routers.projects import router as projects_router
 from routers.sessions import router as sessions_router
 
@@ -71,6 +75,7 @@ app.add_middleware(
 app.include_router(projects_router)   # ST-3
 app.include_router(sessions_router)   # ST-5
 app.include_router(analysis_router)   # ST-5
+app.include_router(fix_router)        # ST-6
 
 
 # ---------------------------------------------------------------------------
