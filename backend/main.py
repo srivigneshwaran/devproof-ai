@@ -2,14 +2,19 @@
 DevProof AI — FastAPI application entry point.
 
 ST-1: Scaffold, CORS, lifespan, and health endpoint.
+ST-2: LLM provider instantiated once at startup and stored on app.state.llm.
 """
 
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from db.database import init_db
+from llm.factory import get_provider
+
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
@@ -17,8 +22,14 @@ async def lifespan(app: FastAPI):
     """Application lifespan: startup and shutdown events."""
     # Startup
     init_db()
+
+    # ST-2: initialise the LLM provider once and attach it to app state so
+    # every request handler can access it via `request.app.state.llm`.
+    app.state.llm = get_provider()
+    logger.info("LLM provider ready: %s", type(app.state.llm).__name__)
+
     yield
-    # Shutdown (nothing to clean up in ST-1)
+    # Shutdown (nothing to clean up yet)
 
 
 app = FastAPI(
