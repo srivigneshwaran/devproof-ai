@@ -238,12 +238,14 @@ class TestUploadFiles:
             "/api/projects/upload",
             files=[("files[]", ("evil.txt", io.BytesIO(b"data"), "text/plain"))],
         )
-        assert resp.status_code == 422
+        # ST-9: upload validation returns 400 for invalid files
+        assert resp.status_code == 400
 
     def test_upload_rejects_too_many_files(self, client):
         files = [("files[]", self._make_py_file(f"f{i}.py")) for i in range(6)]
         resp = client.post("/api/projects/upload", files=files)
-        assert resp.status_code == 422
+        # ST-9: upload validation returns 400 for excess files
+        assert resp.status_code == 400
 
     def test_upload_rejects_oversized_file(self, client):
         big_content = b"x = 1\n" * (20 * 1024)  # ~120 KB
@@ -251,7 +253,8 @@ class TestUploadFiles:
             "/api/projects/upload",
             files=[("files[]", ("big.py", io.BytesIO(big_content), "text/x-python"))],
         )
-        assert resp.status_code == 422
+        # ST-9: upload validation returns 400 for oversized files
+        assert resp.status_code == 400
 
     def test_upload_result_shape(self, client):
         resp = client.post(

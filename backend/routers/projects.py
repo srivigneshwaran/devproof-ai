@@ -1,5 +1,5 @@
 """
-DevProof AI — Projects router (ST-3).
+DevProof AI — Projects router (ST-3, ST-9).
 
 Implements:
     GET  /api/projects              → Project[]
@@ -7,6 +7,14 @@ Implements:
     POST /api/projects/upload       → UploadResult  (file upload for ad-hoc sessions)
 
 All shapes match the REST API contract in devproof-ai-plan.md exactly.
+
+ST-9 upload security:
+  - Only .py files accepted (HTTP 400 on bad extension).
+  - Maximum _MAX_FILES files per upload (HTTP 400 on excess).
+  - Maximum _MAX_FILE_BYTES per file (HTTP 400 on oversize).
+  - Filename path-traversal guard: only the basename is used; any filename
+    containing path separators or that resolves outside the workspace is
+    rejected with HTTP 400.
 """
 
 import os
@@ -87,37 +95,75 @@ def get_files_endpoint(project_id: str):
     return files
 
 
+def _safe_filename(filename: str) -> str:
+    """
+    Return the safe basename for an uploaded filename.
+
+    Raises HTTPException 400 if the filename:
+    - is empty
+    - contains path separators (path-traversal attempt)
+    - does not have a .py extension
+
+    Only the basename is ever used — directory components are stripped
+    defensively before the safety check.
+    """
+    if not filename:
+        raise HTTPException(status_code=400, detail="Filename must not be empty")
+
+    # Reject filenames that contain explicit path separators before stripping.
+    # Path.name strips them silently; we want to explicitly reject traversal
+    # attempts rather than silently accepting only the basename.
+    if "/" in filename or "\\" in filename:
+        raise HTTPException(
+            status_code=400,
+            detail="Filename must not contain path separators",
+        )
+
+    safe = Path(filename).name  # strip any remaining . or similar artefacts
+
+    if not safe:
+        raise HTTPException(status_code=400, detail="Filename resolves to empty after sanitisation")
+
+    if not safe.endswith(".py"):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Only .py files are accepted; '{safe}' is not allowed",
+        )
+
+    return safe
+
+
 @router.post("/upload", response_model=UploadResult, summary="Upload .py files for a session")
 async def upload_files_endpoint(files: Annotated[list[UploadFile], File(alias="files[]")]):
     """
     Accept up to 5 `.py` files (max 100 KB each) and save them to a new
     per-session workspace directory.
 
-    Constraints enforced:
-    - Only .py files are accepted (HTTP 422 otherwise).
-    - Maximum 5 files per upload.
-    - Maximum 100 KB per file.
+    ST-9 constraints enforced:
+    - Only .py files accepted (HTTP 400 on bad extension or path traversal).
+    - Maximum 5 files per upload (HTTP 400 on excess).
+    - Maximum 100 KB per file (HTTP 400 on oversize).
+    - Filename path-traversal guard: path separators in filename → HTTP 400.
+    - Files are saved under workspace/{session_id}/ using the safe basename only.
     """
     if len(files) == 0:
-        raise HTTPException(status_code=422, detail="At least one file is required")
+        raise HTTPException(status_code=400, detail="At least one file is required")
     if len(files) > _MAX_FILES:
-        raise HTTPException(status_code=422, detail=f"Maximum {_MAX_FILES} files per upload")
+        raise HTTPException(status_code=400, detail=f"Maximum {_MAX_FILES} files per upload")
 
-    # Validate extensions and sizes before writing anything
+    # Validate filenames, extensions, and sizes before writing anything.
+    validated: list[tuple[str, bytes]] = []
     for upload in files:
-        filename = upload.filename or ""
-        if not filename.endswith(".py"):
-            raise HTTPException(
-                status_code=422,
-                detail=f"Only .py files are accepted; '{filename}' is not allowed",
-            )
+        raw_filename = upload.filename or ""
+        safe_name = _safe_filename(raw_filename)  # raises HTTP 400 on bad name
+
         content = await upload.read()
         if len(content) > _MAX_FILE_BYTES:
             raise HTTPException(
-                status_code=422,
-                detail=f"File '{filename}' exceeds the 100 KB limit",
+                status_code=400,
+                detail=f"File '{safe_name}' exceeds the 100 KB limit",
             )
-        await upload.seek(0)  # reset for writing
+        validated.append((safe_name, content))
 
     # Create a unique session workspace directory
     session_id = str(uuid.uuid4())
@@ -125,12 +171,16 @@ async def upload_files_endpoint(files: Annotated[list[UploadFile], File(alias="f
     session_dir.mkdir(parents=True, exist_ok=True)
 
     saved_paths: list[str] = []
-    for upload in files:
-        filename = upload.filename or f"file_{len(saved_paths)}.py"
-        dest = session_dir / Path(filename).name
-        content = await upload.read()
+    for safe_name, content in validated:
+        dest = session_dir / safe_name
+        # Belt-and-suspenders: ensure dest resolves inside session_dir.
+        if not str(dest.resolve()).startswith(str(session_dir.resolve())):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Path traversal detected for file '{safe_name}'",
+            )
         async with aiofiles.open(dest, "wb") as f:
             await f.write(content)
-        saved_paths.append(filename)
+        saved_paths.append(safe_name)
 
     return UploadResult(session_file_paths=saved_paths)

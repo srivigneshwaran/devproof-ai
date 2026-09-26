@@ -18,6 +18,8 @@ ST-7: Verify and Report routers registered.
       GET  /api/report/{session_id}
 ST-8: Global exception handler (unhandled → 500), HTTPException handler
       (normalized error envelope), and startup env-var validation.
+ST-9: CORS locked to configured origins (no wildcard), X-Content-Type-Options
+      header middleware, upload path-traversal hardening.
 """
 
 import logging
@@ -28,6 +30,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from db.database import init_db
 from llm.factory import get_provider, validate_env
@@ -68,19 +71,38 @@ app = FastAPI(
 )
 
 # ---------------------------------------------------------------------------
-# CORS — allow the Vite dev server (default port 5173) and any configured
-# frontend origin. In production, restrict to the deployed frontend URL.
+# ST-9: CORS — read allowed origins from CORS_ORIGINS env var.
+# Never use "*" for allow_origins. Default covers the local Vite dev server.
 # ---------------------------------------------------------------------------
+_raw_origins = os.environ.get(
+    "CORS_ORIGINS",
+    "http://localhost:5173,http://127.0.0.1:5173",
+)
+_ALLOWED_ORIGINS: list[str] = [o.strip() for o in _raw_origins.split(",") if o.strip()]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-    ],
+    allow_origins=_ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# ---------------------------------------------------------------------------
+# ST-9: Security response headers middleware.
+# Adds X-Content-Type-Options: nosniff to every API response.
+# ---------------------------------------------------------------------------
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    """Add security headers to every response."""
+
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        return response
+
+
+app.add_middleware(SecurityHeadersMiddleware)
 
 
 # ---------------------------------------------------------------------------
