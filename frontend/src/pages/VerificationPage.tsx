@@ -6,23 +6,34 @@ import { CodeBlock } from '../components/CodeBlock'
 import { TerminalOutput } from '../components/TerminalOutput'
 import { VerdictBadge } from '../components/VerdictBadge'
 
+// ST-14: approval-required message, also set by the axios interceptor for 409s.
+const APPROVAL_REQUIRED_MSG = 'Fix must be approved before running verification.'
+
 export function VerificationPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
 
   const [running, setRunning] = useState(false)
   const [runError, setRunError] = useState<string | null>(null)
+  const [approvalRequired, setApprovalRequired] = useState(false)
   const [report, setReport] = useState<VerificationReport | null>(null)
 
   async function handleRunVerification() {
     if (!id || running) return
     setRunError(null)
+    setApprovalRequired(false)
     setRunning(true)
     try {
       const result = await runVerification(id)
       setReport(result)
     } catch (e) {
-      setRunError(e instanceof Error ? e.message : 'An unexpected error occurred.')
+      const msg = e instanceof Error ? e.message : 'An unexpected error occurred.'
+      // ST-14: special inline treatment for approval-gate errors (HTTP 409).
+      if (msg === APPROVAL_REQUIRED_MSG) {
+        setApprovalRequired(true)
+      } else {
+        setRunError(msg)
+      }
     } finally {
       setRunning(false)
     }
@@ -52,6 +63,21 @@ export function VerificationPage() {
               This will generate pytest tests, run them, and produce a full verification report.
             </p>
           </div>
+
+          {/* Approval-gate error (HTTP 409) */}
+          {approvalRequired && (
+            <div className="w-full rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 text-left">
+              <strong className="font-medium">Approval required: </strong>
+              {APPROVAL_REQUIRED_MSG}{' '}
+              <button
+                type="button"
+                onClick={() => navigate(`/analysis/${id}/fix`)}
+                className="underline font-medium hover:no-underline focus:outline-none"
+              >
+                Go to Fix Suggestion →
+              </button>
+            </div>
+          )}
 
           {/* Run error */}
           {runError && (

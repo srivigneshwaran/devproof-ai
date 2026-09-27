@@ -1,4 +1,5 @@
 import axios from 'axios'
+import { toastEmitter } from '../lib/toastEmitter'
 
 /**
  * Shared axios instance.
@@ -12,16 +13,36 @@ export const apiClient = axios.create({
   },
 })
 
-// Response interceptor — normalise API errors so callers receive a plain Error
-// with the backend's `error` field as the message.
+// Response interceptor — normalise API errors, emit toast notifications, and
+// reject with a plain Error so individual callers receive the message string.
 apiClient.interceptors.response.use(
   (response) => response,
   (error) => {
-    const message: string =
+    const status: number | undefined = error.response?.status
+
+    // Pick the most descriptive message from the response body.
+    let message: string =
       error.response?.data?.error ??
       error.response?.data?.detail ??
       error.message ??
       'An unexpected error occurred.'
+
+    // ST-14: translate specific status codes to user-friendly messages.
+    if (status === 409) {
+      message = 'Fix must be approved before running verification.'
+    } else if (
+      typeof message === 'string' &&
+      (message.toLowerCase().includes('llm') ||
+        message.toLowerCase().includes('openai') ||
+        message.toLowerCase().includes('anthropic') ||
+        message.toLowerCase().includes('ai service'))
+    ) {
+      message = 'AI service unavailable — please retry.'
+    }
+
+    // Emit a toast so every page gets error feedback without extra code.
+    toastEmitter.emit('error', message)
+
     return Promise.reject(new Error(message))
   },
 )
