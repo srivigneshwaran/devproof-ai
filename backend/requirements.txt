@@ -1,7 +1,4 @@
 # DevProof AI — backend Python dependencies
-# ST-1: core runtime + dev dependencies.
-# ST-2: ibm-watsonx-ai and openai added for LLM provider abstraction.
-# ST-3: python-multipart added for file upload support.
 
 # Web framework
 fastapi==0.115.5
@@ -11,14 +8,10 @@ python-multipart==0.0.20
 # Environment variable loading
 python-dotenv==1.0.1
 
-# Async file I/O (used in ST-3 workspace handling)
+# Async file I/O
 aiofiles==24.1.0
 
-# LLM provider SDKs — imported lazily; credentials only needed at runtime
-ibm-watsonx-ai==1.1.15
-openai==1.57.0
-
 # Development / testing
-httpx==0.28.0           # required by FastAPI TestClient
+httpx==0.28.0
 pytest==8.3.4
 pytest-asyncio==0.24.0
