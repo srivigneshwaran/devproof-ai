@@ -37,6 +37,9 @@ os.environ["LLM_PROVIDER"] = "mock"
 
 _BACKEND_DIR = Path(__file__).resolve().parent.parent
 
+_BUGGY_LINE = "    total = round((subtotal - coupon_discount) * tax_rate, 2)  # BUG: discount before tax"
+_FIXED_LINE = "    total = round(subtotal * tax_rate - coupon_discount, 2)"
+
 
 # ===========================================================================
 # Fixtures
@@ -106,9 +109,9 @@ def _seed_fix(session_id: str) -> None:
                 fix_id,
                 session_id,
                 "order_service.py",
-                "discount_amount = subtotal * discount_rate          # BUG: should use subtotal * tax_rate",
-                "discount_amount = subtotal * tax_rate * discount_rate",
-                "Tax before discount.",
+                _BUGGY_LINE,
+                _FIXED_LINE,
+                "Coupon discount must be applied after tax, not before.",
                 now,
             ),
         )

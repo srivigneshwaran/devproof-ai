@@ -61,38 +61,46 @@ _SAMPLE_PROJECTS_DIR = _BACKEND_DIR / "sample_projects"
 
 _MOCK_ANALYSIS: dict = {
     "relevant_files": [
-        {"path": "order_service.py", "confidence": 0.94, "reason": "Discount logic"}
+        {"path": "order_service.py", "confidence": 0.94, "reason": "Coupon discount applied before tax"}
     ],
     "root_causes": [
         {
-            "description": "Discount applied before tax",
+            "description": "coupon_discount subtracted from subtotal before tax; should be subtracted after tax",
             "file": "order_service.py",
-            "line_hint": 34,
+            "line_hint": 42,
         }
     ],
 }
+
+# The original snippet is the exact line from order_service.py (with leading spaces).
+_BUGGY_LINE = "    total = round((subtotal - coupon_discount) * tax_rate, 2)  # BUG: discount before tax"
+_FIXED_LINE = "    total = round(subtotal * tax_rate - coupon_discount, 2)"
 
 _MOCK_FIX = {
     "id": "fix-test-id",
     "session_id": "test-session",
     "file_path": "order_service.py",
-    "original": "discount_amount = subtotal * discount_rate          # BUG: should use subtotal * tax_rate",
-    "suggested": "discount_amount = subtotal * tax_rate * discount_rate",
-    "explanation": "Tax must be applied before discount.",
+    "original": _BUGGY_LINE,
+    "suggested": _FIXED_LINE,
+    "explanation": "Coupon discount must be applied after tax, not before.",
 }
 
 _MOCK_TEST_CODE = """\
 import pytest
 from order_service import calculate_order_total
 
-def test_discount_applied_after_tax():
-    assert calculate_order_total(100, 1.1, 0.1) == 99.0
+def test_coupon_applied_after_tax():
+    # fixed:  100 * 1.1 - 10 = 100.0
+    # buggy: (100 - 10) * 1.1 = 99.0
+    assert calculate_order_total(100, 1.1, 10) == 100.0
 
-def test_no_discount():
-    assert calculate_order_total(100, 1.1, 0.0) == 110.0
+def test_no_coupon():
+    assert calculate_order_total(100, 1.1, 0) == 110.0
 
-def test_full_discount():
-    assert calculate_order_total(100, 1.1, 1.0) == 0.0
+def test_large_coupon():
+    # fixed:  200 * 1.1 - 20 = 200.0
+    # buggy: (200 - 20) * 1.1 = 198.0
+    assert calculate_order_total(200, 1.1, 20) == 200.0
 """
 
 
@@ -136,9 +144,6 @@ def _seed_fix(session_id: str, file_path: str = "order_service.py") -> str:
 
     fix_id = str(uuid.uuid4())
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    # Use the actual buggy line from order_service.py as original
-    original = "discount_amount = subtotal * discount_rate          # BUG: should use subtotal * tax_rate"
-    suggested = "discount_amount = subtotal * tax_rate * discount_rate"
     with get_connection() as conn:
         conn.execute(
             """
@@ -150,9 +155,9 @@ def _seed_fix(session_id: str, file_path: str = "order_service.py") -> str:
                 fix_id,
                 session_id,
                 file_path,
-                original,
-                suggested,
-                "Tax must be applied before discount.",
+                _BUGGY_LINE,
+                _FIXED_LINE,
+                "Coupon discount must be applied after tax, not before.",
                 now,
             ),
         )
@@ -785,11 +790,11 @@ class TestValidationServiceUnit:
         from services.validation_service import _apply_fix
 
         source = tmp_path / "order_service.py"
-        source.write_text("line1\ndiscount_amount = subtotal * discount_rate\nline3\n")
-        _apply_fix(tmp_path, "order_service.py", "discount_amount = subtotal * discount_rate", "# FIXED")
+        source.write_text(f"line1\n{_BUGGY_LINE}\nline3\n")
+        _apply_fix(tmp_path, "order_service.py", _BUGGY_LINE, _FIXED_LINE)
         result = source.read_text()
-        assert "# FIXED" in result
-        assert "discount_amount = subtotal * discount_rate" not in result
+        assert _FIXED_LINE in result
+        assert _BUGGY_LINE not in result
 
     def test_apply_fix_does_not_change_file_if_original_not_found(self, tmp_path):
         """If original snippet is not in the file, file must remain unchanged."""
@@ -937,32 +942,35 @@ class TestPytestExecution:
 
     def test_run_tests_passing_tests(self):
         """
-        Tests that should pass (correct assertions on fixed code) → PASS verdict.
+        Tests that pass against fixed code and fail against buggy code → PASS verdict.
+
+        Key discriminating case:
+            calculate_order_total(100, 1.1, 10)
+            buggy:  (100 - 10) * 1.1 = 99.0   ← test would FAIL
+            fixed:  100 * 1.1 - 10  = 100.0   ← test PASSES
         """
         from services.validation_service import run_tests
 
         sid = "pytest-pass-test-" + str(uuid.uuid4())[:8]
         self._make_temp_workspace(sid)
 
-        # Write a fix that makes calculate_order_total correct.
-        # The sample project has the bug, so apply the fix.
         passing_tests = [
             {
                 "file": "test_pass.py",
                 "code": (
                     "from order_service import calculate_order_total\n"
-                    "def test_order_total_no_discount():\n"
-                    "    result = calculate_order_total(100, 1.1, 0.0)\n"
-                    "    assert result == 110.0\n"
+                    "def test_coupon_applied_after_tax():\n"
+                    "    # fixed: 100 * 1.1 - 10 = 100.0\n"
+                    "    assert calculate_order_total(100, 1.1, 10) == 100.0\n"
                 ),
             }
         ]
-        # Fix: replace buggy line with correct formula.
+        # Apply the fix: replace the buggy line with the correct one.
         fixes = [
             {
                 "file_path": "order_service.py",
-                "original": "discount_amount = subtotal * discount_rate          # BUG: should use subtotal * tax_rate",
-                "suggested": "discount_amount = subtotal * tax_rate * discount_rate",
+                "original": "    total = round((subtotal - coupon_discount) * tax_rate, 2)  # BUG: discount before tax",
+                "suggested": "    total = round(subtotal * tax_rate - coupon_discount, 2)",
             }
         ]
 
@@ -973,8 +981,10 @@ class TestPytestExecution:
                 fixes=fixes,
                 project_id="order_service",
             )
-            # The test should pass — the fixed formula gives 110.0 for no discount
-            assert result["tests_passed"] >= 1 or result["exit_code"] != 0  # best-effort
+            # With the fix applied, the test must pass.
+            assert result["tests_passed"] >= 1, (
+                f"Expected at least 1 passing test, got: {result}"
+            )
             assert "timed_out" in result
             assert "test_output" in result
         finally:
@@ -1303,8 +1313,12 @@ class TestMockProviderPlaintext:
         from llm.mock_provider import MockProvider
 
         p = MockProvider()
+        # Routing is by system prompt; "code reviewer" identifies analysis calls.
         result = p.complete(
-            [{"role": "user", "content": "Analyse this code for bugs"}],
+            [
+                {"role": "system", "content": "You are an expert code reviewer and debugger."},
+                {"role": "user", "content": "Analyse this code for bugs"},
+            ],
             json_mode=True,
         )
         data = json.loads(result)

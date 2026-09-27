@@ -46,13 +46,16 @@ os.environ["LLM_PROVIDER"] = "mock"
 # ---------------------------------------------------------------------------
 # Shared FixList LLM response for test mocking
 # ---------------------------------------------------------------------------
+_BUGGY_LINE = "    total = round((subtotal - coupon_discount) * tax_rate, 2)  # BUG: discount before tax"
+_FIXED_LINE = "    total = round(subtotal * tax_rate - coupon_discount, 2)"
+
 _MOCK_FIX_RESPONSE: dict = {
     "fixes": [
         {
             "file_path": "order_service.py",
-            "original": "total = round((subtotal - discount_amount) * tax_rate, 2)",
-            "suggested": "total = round(subtotal * tax_rate * (1 - discount_rate), 2)",
-            "explanation": "Tax must be applied before discount.",
+            "original": _BUGGY_LINE,
+            "suggested": _FIXED_LINE,
+            "explanation": "Coupon discount must be applied after tax, not before.",
         }
     ]
 }
@@ -125,9 +128,9 @@ def _seed_fix(session_id: str) -> str:
                 fix_id,
                 session_id,
                 "order_service.py",
-                "total = round((subtotal - discount_amount) * tax_rate, 2)",
-                "total = round(subtotal * tax_rate * (1 - discount_rate), 2)",
-                "Tax must be applied before discount.",
+                _BUGGY_LINE,
+                _FIXED_LINE,
+                "Coupon discount must be applied after tax, not before.",
                 now,
             ),
         )
@@ -966,10 +969,16 @@ class TestRegressionST2:
         assert isinstance(app_module.app.state.llm, MockProvider)
 
     def test_mock_provider_returns_fix_response_for_fix_prompt(self):
+        """MockProvider routes fix prompts (identified by system prompt) to _FIX_RESPONSE."""
         from llm.mock_provider import MockProvider
         p = MockProvider()
+        # System prompt must contain "code repair" to route to _FIX_RESPONSE,
+        # mirroring what fix_service._build_fix_messages() produces.
         result = p.complete(
-            [{"role": "user", "content": "generate a fix for this code"}],
+            [
+                {"role": "system", "content": "You are an expert software engineer specialising in code repair."},
+                {"role": "user", "content": "Generate a fix for this code."},
+            ],
             json_mode=True,
         )
         data = json.loads(result)
@@ -1096,3 +1105,71 @@ class TestRegressionST5:
         resp = client.get("/api/sessions")
         assert resp.status_code == 200
         assert isinstance(resp.json(), list)
+
+
+# ===========================================================================
+# Regression: Fix Suggestion page navigation (frontend POST→navigate scenario)
+# ===========================================================================
+
+
+class TestRegressionFixNavigation:
+    """
+    Regression tests for the frontend flow:
+      POST /api/fix  →  navigate to Fix Suggestion page  →  display fixes.
+
+    The frontend passes the POST response body as React Router location state,
+    so the Fix Suggestion page uses that data directly and never calls
+    GET /api/fix/{session_id}.  These tests verify the POST response contains
+    a complete, correct FixList so the navigation-state approach is reliable.
+    """
+
+    def test_post_response_contains_fixes(self, client, analyzed_session_id):
+        """POST /api/fix response body includes a non-empty fixes list."""
+        resp = client.post("/api/fix", json={"session_id": analyzed_session_id})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "fixes" in data
+        assert isinstance(data["fixes"], list)
+        assert len(data["fixes"]) >= 1, (
+            "POST /api/fix must return at least one fix so the Fix Suggestion "
+            "page has data to display without a follow-up GET."
+        )
+
+    def test_post_response_fix_shape(self, client, analyzed_session_id):
+        """Each fix in the POST response has all required fields."""
+        resp = client.post("/api/fix", json={"session_id": analyzed_session_id})
+        for fix in resp.json()["fixes"]:
+            assert {"id", "file_path", "original", "suggested", "explanation"}.issubset(
+                fix.keys()
+            )
+
+    def test_post_response_session_id_matches(self, client, analyzed_session_id):
+        """The session_id in the POST response matches the requested session."""
+        resp = client.post("/api/fix", json={"session_id": analyzed_session_id})
+        assert resp.json()["session_id"] == analyzed_session_id
+
+    def test_get_after_post_returns_same_fixes(self, client):
+        """
+        GET /api/fix/{session_id} returns the same fix IDs as the prior POST.
+        This ensures the backend remains usable for direct GET access (e.g. page
+        reload) even though the primary flow uses POST-response navigation state.
+        """
+        create_resp = client.post(
+            "/api/sessions",
+            json={
+                "project_id": "order_service",
+                "bug_description": "Regression: POST→GET fix consistency",
+            },
+        )
+        sid = create_resp.json()["id"]
+        _seed_analysis(sid)
+
+        post_resp = client.post("/api/fix", json={"session_id": sid})
+        assert post_resp.status_code == 200
+        post_fix_ids = {f["id"] for f in post_resp.json()["fixes"]}
+
+        get_resp = client.get(f"/api/fix/{sid}")
+        assert get_resp.status_code == 200
+        get_fix_ids = {f["id"] for f in get_resp.json()["fixes"]}
+
+        assert post_fix_ids == get_fix_ids

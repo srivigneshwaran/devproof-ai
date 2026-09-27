@@ -53,8 +53,12 @@ class TestMockProvider:
 
     def test_analysis_keyword_triggers_analysis_response(self):
         p = self._provider()
+        # Routing is by system prompt; "code reviewer" identifies analysis calls.
         result = p.complete(
-            [{"role": "user", "content": "please analyse this code"}],
+            [
+                {"role": "system", "content": "You are an expert code reviewer and debugger."},
+                {"role": "user", "content": "please analyse this code"},
+            ],
             json_mode=True,
         )
         data = json.loads(result)
@@ -63,8 +67,12 @@ class TestMockProvider:
 
     def test_fix_keyword_triggers_fix_response(self):
         p = self._provider()
+        # Routing is by system prompt; "code repair" identifies fix calls.
         result = p.complete(
-            [{"role": "user", "content": "suggest a fix for the bug"}],
+            [
+                {"role": "system", "content": "You are an expert software engineer specialising in code repair."},
+                {"role": "user", "content": "suggest a fix for the bug"},
+            ],
             json_mode=True,
         )
         data = json.loads(result)

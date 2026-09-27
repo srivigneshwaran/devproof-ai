@@ -27,14 +27,17 @@ _ANALYSIS_RESPONSE: dict = {
         {
             "path": "order_service.py",
             "confidence": 0.94,
-            "reason": "Discount logic is applied before tax calculation.",
+            "reason": "Coupon discount is applied before tax, reducing the taxable base.",
         }
     ],
     "root_causes": [
         {
-            "description": "Discount is applied to pre-tax subtotal instead of post-tax total.",
+            "description": (
+                "coupon_discount is subtracted from subtotal before tax is applied. "
+                "It should be subtracted after tax so the full subtotal is taxed."
+            ),
             "file": "order_service.py",
-            "line_hint": 27,
+            "line_hint": 42,
         }
     ],
 }
@@ -43,12 +46,12 @@ _FIX_RESPONSE: dict = {
     "fixes": [
         {
             "file_path": "order_service.py",
-            "original": "total = round((subtotal - discount_amount) * tax_rate, 2)",
-            "suggested": "total = round(subtotal * tax_rate * (1 - discount_rate), 2)",
+            "original": "    total = round((subtotal - coupon_discount) * tax_rate, 2)  # BUG: discount before tax",
+            "suggested": "    total = round(subtotal * tax_rate - coupon_discount, 2)",
             "explanation": (
-                "Tax must be applied before discount to match pricing rules. "
-                "The corrected formula first multiplies the subtotal by the tax rate "
-                "and then applies the discount percentage to the post-tax amount."
+                "The coupon discount must be applied after tax, not before. "
+                "Applying it before tax reduces the taxable base and causes the "
+                "customer to be charged less than the correct post-tax amount minus coupon."
             ),
         }
     ]
@@ -64,21 +67,22 @@ _VERIFICATION_RESPONSE: dict = {
                 import pytest
                 from order_service import calculate_order_total
 
-                def test_discount_applied_after_tax():
-                    # With the fix: total = subtotal * tax_rate * (1 - discount_rate)
-                    # subtotal=100, tax_rate=1.1, discount_rate=0.1
-                    # expected = 100 * 1.1 * 0.9 = 99.0
-                    assert calculate_order_total(100, 1.1, 0.1) == 99.0
+                def test_coupon_applied_after_tax():
+                    # subtotal=100, tax_rate=1.1, coupon=10
+                    # fixed:  100 * 1.1 - 10 = 100.0
+                    # buggy: (100 - 10) * 1.1 = 99.0
+                    assert calculate_order_total(100, 1.1, 10) == 100.0
 
-                def test_no_discount():
-                    # subtotal=100, tax_rate=1.1, discount_rate=0.0
-                    # expected = 100 * 1.1 = 110.0
-                    assert calculate_order_total(100, 1.1, 0.0) == 110.0
+                def test_no_coupon():
+                    # No coupon: total = subtotal * tax_rate
+                    # 100 * 1.1 - 0 = 110.0  (same for both buggy and fixed)
+                    assert calculate_order_total(100, 1.1, 0) == 110.0
 
-                def test_full_discount():
-                    # subtotal=100, tax_rate=1.1, discount_rate=1.0
-                    # expected = 0.0
-                    assert calculate_order_total(100, 1.1, 1.0) == 0.0
+                def test_large_coupon():
+                    # subtotal=200, tax_rate=1.1, coupon=20
+                    # fixed:  200 * 1.1 - 20 = 200.0
+                    # buggy: (200 - 20) * 1.1 = 198.0
+                    assert calculate_order_total(200, 1.1, 20) == 200.0
                 """
             ),
         }
@@ -87,8 +91,8 @@ _VERIFICATION_RESPONSE: dict = {
     "tests_passed": 3,
     "tests_failed": 0,
     "summary": (
-        "The discount/tax ordering bug in order_service.py was corrected. "
-        "All 3 generated tests pass."
+        "The coupon-discount ordering bug in order_service.py was corrected. "
+        "All 3 generated tests pass with the fix applied."
     ),
 }
 
@@ -99,16 +103,20 @@ _MOCK_TEST_CODE_ORDER = textwrap.dedent(
     import pytest
     from order_service import calculate_order_total
 
-    def test_discount_applied_after_tax():
-        # subtotal=100, tax_rate=1.1, discount_rate=0.1
-        # fixed: total = subtotal * tax_rate * (1 - discount_rate) = 99.0
-        assert calculate_order_total(100, 1.1, 0.1) == 99.0
+    def test_coupon_applied_after_tax():
+        # subtotal=100, tax_rate=1.1, coupon=10
+        # fixed:  100 * 1.1 - 10 = 100.0
+        # buggy: (100 - 10) * 1.1 = 99.0
+        assert calculate_order_total(100, 1.1, 10) == 100.0
 
-    def test_no_discount():
-        assert calculate_order_total(100, 1.1, 0.0) == 110.0
+    def test_no_coupon():
+        assert calculate_order_total(100, 1.1, 0) == 110.0
 
-    def test_full_discount():
-        assert calculate_order_total(100, 1.1, 1.0) == 0.0
+    def test_large_coupon():
+        # subtotal=200, tax_rate=1.1, coupon=20
+        # fixed:  200 * 1.1 - 20 = 200.0
+        # buggy: (200 - 20) * 1.1 = 198.0
+        assert calculate_order_total(200, 1.1, 20) == 200.0
     """
 )
 
@@ -142,15 +150,21 @@ _GENERIC_RESPONSE: dict = {
     "status": "ok",
 }
 
-# Keyword → canned response mapping for JSON-mode calls
-# (checked against the last user message).
+# Keyword → canned response mapping for JSON-mode calls.
+#
+# These keywords are matched against the system prompt text only
+# (see _select_json_response).  Each keyword must appear in exactly
+# one service's system prompt to avoid ambiguous routing.
+#
+# Analysis system prompt:  "code reviewer and debugger"  → "code reviewer"
+# Fix system prompt:       "code repair"                 → "code repair"
+# Verify/test system prompt: "test engineer"             → "test engineer"
+# (Report uses json_mode=False so it routes via _PLAINTEXT_KEYWORD_MAP)
 _JSON_KEYWORD_MAP: list[tuple[str, dict]] = [
-    ("analys", _ANALYSIS_RESPONSE),
-    ("root cause", _ANALYSIS_RESPONSE),
-    ("fix", _FIX_RESPONSE),
-    ("patch", _FIX_RESPONSE),
+    ("code reviewer", _ANALYSIS_RESPONSE),
+    ("code repair", _FIX_RESPONSE),
     ("verif", _VERIFICATION_RESPONSE),
-    ("test", _VERIFICATION_RESPONSE),
+    ("test engineer", _VERIFICATION_RESPONSE),
 ]
 
 # Keyword → canned plain-text response for non-JSON calls.
@@ -169,15 +183,31 @@ _PLAINTEXT_KEYWORD_MAP: list[tuple[str, str]] = [
 
 
 def _select_json_response(messages: list[dict]) -> dict:
-    """Return the most appropriate canned JSON response for *messages*."""
-    last_user_content = ""
-    for msg in reversed(messages):
-        if msg.get("role") == "user":
-            last_user_content = str(msg.get("content", "")).lower()
+    """Return the most appropriate canned JSON response for *messages*.
+
+    Routes by inspecting the **system prompt** only (role == "system").
+    System prompts are authored by the service layer and contain unique,
+    stable keywords that identify the call type. Routing by user-message
+    content is unreliable because file contents uploaded by users or
+    included as source context may contain any keyword.
+    Falls back to all-message scan if no system prompt is present.
+    """
+    system_content = ""
+    for msg in messages:
+        if msg.get("role") == "system":
+            system_content = str(msg.get("content", "")).lower()
             break
 
+    # If there is no system message, fall back to the last user message
+    # (legacy path, keeps backward-compatibility for direct calls).
+    if not system_content:
+        for msg in reversed(messages):
+            if msg.get("role") == "user":
+                system_content = str(msg.get("content", "")).lower()
+                break
+
     for keyword, response in _JSON_KEYWORD_MAP:
-        if keyword in last_user_content:
+        if keyword in system_content:
             return response
 
     return _GENERIC_RESPONSE

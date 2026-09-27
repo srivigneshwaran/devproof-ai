@@ -171,6 +171,26 @@ class TestGetProjects:
         resp = client.get("/api/projects")
         assert "application/json" in resp.headers["content-type"]
 
+    def test_response_is_bare_array_not_wrapped_object(self, client):
+        """
+        Regression: GET /api/projects must return a bare JSON array, not an
+        object envelope such as {"projects": [...]} or {"data": [...]}.
+
+        A wrapped response would cause `projects.map is not a function` in
+        ProjectSelector because the frontend assigns res.data directly to the
+        projects state (which is typed as Project[]).
+        """
+        resp = client.get("/api/projects")
+        data = resp.json()
+        # Top-level value must be a list, not a dict
+        assert isinstance(data, list), (
+            f"Expected a JSON array at the top level, got {type(data).__name__}. "
+            "The frontend ProjectSelector calls .map() on this value directly; "
+            "wrapping it in an object causes 'projects.map is not a function'."
+        )
+        # Confirm none of the known wrapper keys are present at the top level
+        assert not isinstance(data, dict), "Response must not be wrapped in an object envelope"
+
 
 # ---------------------------------------------------------------------------
 # GET /api/projects/{id}/files
